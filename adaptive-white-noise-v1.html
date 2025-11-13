@@ -886,16 +886,19 @@
             },
             stream: {
                 // 💧 MIXKIT STREAM/WATER SOUNDS - Actual IDs from downloaded files!
-                light: 'https://assets.mixkit.co/active_storage/sfx/2450/2450-preview.mp3',  // River atmosphere in a forest
+                light: 'https://assets.mixkit.co/active_storage/sfx/1216/1216-preview.mp3',  // River in the forest with birds
                 medium: 'https://assets.mixkit.co/active_storage/sfx/2454/2454-preview.mp3',  // River water flowing
                 heavy: 'https://assets.mixkit.co/active_storage/sfx/2461/2461-preview.mp3'   // Strong flowing waters noise
             }
         };
 
-        // Audio player for natural recordings - NO SYNTHESIZED FALLBACK
+        // Audio player for natural recordings - Uses Web Audio API for GAPLESS looping
         class NaturalSoundPlayer {
             constructor() {
-                this.audioElements = {};
+                this.audioBuffers = {};      // Stores decoded AudioBuffers
+                this.audioSources = {};      // Stores currently playing sources
+                this.gainNodes = {};         // Stores gain nodes for volume control
+                this.audioContext = null;    // Web Audio context
                 this.currentTheme = null;
                 this.currentIntensity = null;
                 this.isLoaded = {};
@@ -908,52 +911,56 @@
                     log(`${theme} already loaded`, false);
                     return;
                 }
-                
-                log(`Loading ${theme} audio files...`, true);
-                this.audioElements[theme] = {};
-                const loadResults = [];
-                
-                for (const intensity of ['light', 'medium', 'heavy']) {
-                    const audio = new Audio();
-                    audio.crossOrigin = 'anonymous';
-                    audio.loop = true;
-                    audio.preload = 'auto';
-                    audio.volume = 0;
-                    
-                    const url = audioLibrary[theme][intensity];
-                    audio.src = url;
-                    
-                    this.audioElements[theme][intensity] = audio;
-                    
-                    const loadPromise = new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => {
-                            reject(new Error(`Timeout loading ${intensity} ${theme}`));
-                        }, 15000); // 15 second timeout
-                        
-                        audio.addEventListener('canplaythrough', () => {
-                            clearTimeout(timeout);
-                            log(`✓ Loaded ${intensity} ${theme}`, false);
-                            resolve({ intensity, success: true });
-                        }, { once: true });
-                        
-                        audio.addEventListener('error', (e) => {
-                            clearTimeout(timeout);
-                            const errorMsg = audio.error ? 
-                                `Error ${audio.error.code}: ${audio.error.message}` : 
-                                'Unknown error';
-                            log(`✗ Failed: ${intensity} ${theme} - ${errorMsg}`, true);
-                            reject(new Error(`Failed to load ${intensity} ${theme}`));
-                        }, { once: true });
-                        
-                        audio.load();
-                    });
-                    
-                    loadResults.push(loadPromise.catch(e => ({ intensity, success: false, error: e.message })));
+
+                // Initialize AudioContext if not already done
+                if (!this.audioContext) {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
-                
+
+                log(`Loading ${theme} audio files...`, true);
+                this.audioBuffers[theme] = {};
+                this.audioSources[theme] = {};
+                this.gainNodes[theme] = {};
+                const loadResults = [];
+
+                for (const intensity of ['light', 'medium', 'heavy']) {
+                    const url = audioLibrary[theme][intensity];
+
+                    const loadPromise = (async () => {
+                        try {
+                            const timeout = new Promise((_, reject) =>
+                                setTimeout(() => reject(new Error(`Timeout loading ${intensity} ${theme}`)), 15000)
+                            );
+
+                            const fetchPromise = fetch(url)
+                                .then(response => {
+                                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                                    return response.arrayBuffer();
+                                })
+                                .then(arrayBuffer => this.audioContext.decodeAudioData(arrayBuffer));
+
+                            const buffer = await Promise.race([fetchPromise, timeout]);
+                            this.audioBuffers[theme][intensity] = buffer;
+
+                            // Create a gain node for this intensity
+                            this.gainNodes[theme][intensity] = this.audioContext.createGain();
+                            this.gainNodes[theme][intensity].connect(this.audioContext.destination);
+                            this.gainNodes[theme][intensity].gain.value = 0;
+
+                            log(`✓ Loaded ${intensity} ${theme}`, false);
+                            return { intensity, success: true };
+                        } catch (error) {
+                            log(`✗ Failed: ${intensity} ${theme} - ${error.message}`, true);
+                            return { intensity, success: false, error: error.message };
+                        }
+                    })();
+
+                    loadResults.push(loadPromise);
+                }
+
                 const results = await Promise.all(loadResults);
                 const failedCount = results.filter(r => !r.success).length;
-                
+
                 if (failedCount === 3) {
                     this.failedToLoad[theme] = true;
                     throw new Error(`All ${theme} audio files failed to load. Check your internet connection or try a different browser.`);
@@ -964,103 +971,134 @@
                     log(`✅ All ${theme} files ready!`, true);
                     this.failedToLoad[theme] = false;
                 }
-                
+
                 this.isLoaded[theme] = true;
             }
 
             play(theme, intensity, targetVolume) {
-                if (!this.audioElements[theme]) {
+                if (!this.audioBuffers[theme]) {
                     log('⚠️ Audio not loaded - click Preview first', true);
                     return;
                 }
 
-                const newAudio = this.audioElements[theme][intensity];
-                
-                if (!newAudio || newAudio.error) {
+                const buffer = this.audioBuffers[theme][intensity];
+
+                if (!buffer) {
                     log(`⚠️ ${intensity} audio unavailable`, true);
                     return;
                 }
-                
+
+                // Resume AudioContext if suspended (required for user interaction)
+                if (this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+
                 // Crossfade between intensities
                 if (this.currentTheme === theme && this.currentIntensity !== intensity) {
-                    const oldAudio = this.audioElements[theme][this.currentIntensity];
-                    
-                    if (oldAudio && !oldAudio.error) {
-                        newAudio.volume = 0;
-                        const playPromise = newAudio.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(e => log(`Play error: ${e.message}`, true));
-                        }
-                        this.crossfade(oldAudio, newAudio, targetVolume);
+                    const oldGain = this.gainNodes[theme][this.currentIntensity];
+                    const newGain = this.gainNodes[theme][intensity];
+
+                    if (oldGain && newGain) {
+                        // Start new source
+                        this.startSource(theme, intensity);
+                        newGain.gain.value = 0;
+
+                        this.crossfade(oldGain, newGain, targetVolume);
                         log(`Crossfading to ${intensity} ${theme}`, false);
                     }
                 }
                 // First time or switching theme
                 else if (this.currentTheme !== theme || this.currentIntensity !== intensity) {
                     this.stopAll();
-                    newAudio.volume = targetVolume;
-                    const playPromise = newAudio.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(e => log(`Play error: ${e.message}`, true));
-                    }
+                    this.startSource(theme, intensity);
+                    this.gainNodes[theme][intensity].gain.value = targetVolume;
                     log(`▶️ Playing ${intensity} ${theme}`, true);
                 }
                 // Just update volume
                 else {
-                    newAudio.volume = targetVolume;
+                    this.gainNodes[theme][intensity].gain.value = targetVolume;
                 }
-                
+
                 this.currentTheme = theme;
                 this.currentIntensity = intensity;
             }
 
-            crossfade(oldAudio, newAudio, targetVolume) {
+            startSource(theme, intensity) {
+                // Stop existing source if any
+                if (this.audioSources[theme][intensity]) {
+                    try {
+                        this.audioSources[theme][intensity].stop();
+                    } catch (e) {
+                        // Source may already be stopped
+                    }
+                }
+
+                // Create new source
+                const source = this.audioContext.createBufferSource();
+                source.buffer = this.audioBuffers[theme][intensity];
+                source.loop = true; // Enable GAPLESS looping
+                source.connect(this.gainNodes[theme][intensity]);
+                source.start(0);
+
+                this.audioSources[theme][intensity] = source;
+            }
+
+            crossfade(oldGain, newGain, targetVolume) {
                 const steps = 30;
                 const fadeTime = config.fadeUpSpeed || 1.0; // Use user-configured fade time
                 const interval = (fadeTime * 1000) / steps;
                 let step = 0;
-                
+
                 const fadeInterval = setInterval(() => {
                     step++;
                     const progress = step / steps;
-                    
-                    if (oldAudio && !oldAudio.error) {
-                        oldAudio.volume = Math.max(0, oldAudio.volume * (1 - progress));
+
+                    if (oldGain) {
+                        oldGain.gain.value = Math.max(0, oldGain.gain.value * (1 - progress));
                     }
-                    if (newAudio && !newAudio.error) {
-                        newAudio.volume = targetVolume * progress;
+                    if (newGain) {
+                        newGain.gain.value = targetVolume * progress;
                     }
-                    
+
                     if (step >= steps) {
                         clearInterval(fadeInterval);
-                        if (oldAudio) {
-                            oldAudio.pause();
-                            oldAudio.currentTime = 0;
-                        }
+                        // Old source will be stopped when a new one starts or stopAll is called
                     }
                 }, interval);
             }
 
             setVolume(volume) {
                 if (this.currentTheme && this.currentIntensity) {
-                    const audio = this.audioElements[this.currentTheme][this.currentIntensity];
-                    if (audio && !audio.error) {
-                        audio.volume = Math.max(0, Math.min(1, volume));
+                    const gain = this.gainNodes[this.currentTheme][this.currentIntensity];
+                    if (gain) {
+                        gain.gain.value = Math.max(0, Math.min(1, volume));
                     }
                 }
             }
 
             stopAll() {
-                for (const theme in this.audioElements) {
-                    for (const intensity in this.audioElements[theme]) {
-                        const audio = this.audioElements[theme][intensity];
-                        if (audio) {
-                            audio.pause();
-                            audio.currentTime = 0;
-                            audio.volume = 0;
+                for (const theme in this.audioSources) {
+                    for (const intensity in this.audioSources[theme]) {
+                        const source = this.audioSources[theme][intensity];
+                        if (source) {
+                            try {
+                                source.stop();
+                            } catch (e) {
+                                // Source may already be stopped
+                            }
                         }
                     }
                 }
+
+                // Reset all gain nodes to 0
+                for (const theme in this.gainNodes) {
+                    for (const intensity in this.gainNodes[theme]) {
+                        if (this.gainNodes[theme][intensity]) {
+                            this.gainNodes[theme][intensity].gain.value = 0;
+                        }
+                    }
+                }
+
                 this.currentTheme = null;
                 this.currentIntensity = null;
             }

@@ -48,9 +48,9 @@ Support the mission via [PayPal.me](https://paypal.me/evilegi) or [Venmo](https:
 - **Adjustable Transition Speeds**: Control fade-up, hold, and fade-down timing
 - **Low Noise Behavior**: Choose what happens during quiet periods
 
-### 🔒 Privacy & Offline
+### 🔒 Privacy & Internet
 - **100% Browser-Based**: No server communication, all processing local
-- **Works Offline**: Download and use without internet
+- **Internet Connection**: Audio playback streams from online sources
 - **No Data Collection**: Your settings stay on your device
 - **Microphone Privacy**: Only used locally for noise detection, never transmitted
 
@@ -75,7 +75,6 @@ Support the mission via [PayPal.me](https://paypal.me/evilegi) or [Venmo](https:
 
 ### ✈️ Travel
 - Ocean or Stream sounds mask hotel/flight noise
-- Works offline - download before traveling
 - Quick timer favorites for different situations
 
 ### 🏠 Privacy

